@@ -120,7 +120,6 @@ gulp.task('js', gulp.parallel('js-es5', 'js-es6'));
 gulp.task('plugins', () => {
     return Promise.all([
         { name: 'RevealHighlight', input: './plugin/highlight/plugin.js', output: './plugin/highlight/highlight' },
-        { name: 'RevealMarkdown', input: './plugin/markdown/plugin.js', output: './plugin/markdown/markdown' },
         { name: 'RevealSearch', input: './plugin/search/plugin.js', output: './plugin/search/search' },
         { name: 'RevealNotes', input: './plugin/notes/plugin.js', output: './plugin/notes/notes' },
         { name: 'RevealZoom', input: './plugin/zoom/plugin.js', output: './plugin/zoom/zoom' },
@@ -262,12 +261,11 @@ gulp.task('eslint', () => gulp.src(['./js/**', 'gulpfile.js'])
 
 gulp.task('test', gulp.series( 'eslint', 'qunit' ))
 
-gulp.task('default', gulp.series(gulp.parallel('js', 'css', 'plugins'), 'test'))
-
 gulp.task('build', gulp.parallel('js', 'css', 'plugins'))
 
-gulp.task('package', gulp.series(() =>
+gulp.task('default', gulp.series('build', 'test'))
 
+gulp.task('bundle', gulp.series(() =>
     gulp.src(
         [
             './slides/**/*.html',
@@ -275,7 +273,6 @@ gulp.task('package', gulp.series(() =>
             './lib/**',
             './images/**',
             './plugin/**',
-            './**/*.md',
             '!./node_modules/**',
         ],
         { base: './' }
@@ -283,6 +280,8 @@ gulp.task('package', gulp.series(() =>
     .pipe(gulp.dest('./build'))
 
 ))
+
+gulp.task('package', gulp.series('build', 'bundle'))
 
 gulp.task('reload', () => gulp.src(['./slides/**/*.html'])
     .pipe(connect.reload()));
@@ -299,7 +298,6 @@ gulp.task('serve', () => {
     const slidesRoot = root.endsWith('/') ? root : root + '/'
     gulp.watch([
         slidesRoot + '**/*.html',
-        slidesRoot + '**/*.md',
         `!${slidesRoot}**/node_modules/**`, // ignore node_modules
     ], gulp.series('reload'))
 
