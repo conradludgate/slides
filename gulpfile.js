@@ -270,20 +270,21 @@ gulp.task('package', gulp.series(() =>
 
     gulp.src(
         [
-            './index.html',
+            './slides/**/*.html',
             './dist/**',
             './lib/**',
             './images/**',
             './plugin/**',
-            './**/*.md'
+            './**/*.md',
+            '!./node_modules/**',
         ],
         { base: './' }
     )
-    .pipe(zip('reveal-js-presentation.zip')).pipe(gulp.dest('./'))
+    .pipe(gulp.dest('./build'))
 
 ))
 
-gulp.task('reload', () => gulp.src(['index.html'])
+gulp.task('reload', () => gulp.src(['./slides/**/*.html'])
     .pipe(connect.reload()));
 
 gulp.task('serve', () => {
