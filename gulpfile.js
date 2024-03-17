@@ -279,8 +279,6 @@ gulp.task('bundle', gulp.series(() =>
 
 ))
 
-gulp.task('package', gulp.series('build', 'bundle'))
-
 gulp.task('reload', () => gulp.src(['./slides/**/*.html'])
     .pipe(connect.reload()));
 

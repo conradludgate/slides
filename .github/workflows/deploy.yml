@@ -29,7 +29,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Build assets
-        run: npx gulp package
+        run: npx gulp build && npx gulp bundle
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
