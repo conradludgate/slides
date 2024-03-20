@@ -1,39 +1,273 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-	<head>
-		<meta charset="utf-8">
-		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
 
-		<title>reveal.js</title>
+    <title>reveal.js</title>
 
-		<link rel="stylesheet" href="/dist/reset.css">
-		<link rel="stylesheet" href="/dist/reveal.css">
-		<link rel="stylesheet" href="/dist/theme/black.css">
+    <link rel="stylesheet" href="/dist/reset.css" />
+    <link rel="stylesheet" href="/dist/reveal.css" />
+    <link rel="stylesheet" href="/dist/theme/black.css" />
 
-		<!-- Theme used for syntax highlighted code -->
-		<link rel="stylesheet" href="/plugin/highlight/monokai.css">
-	</head>
-	<body>
-		<div class="reveal">
-			<div class="slides">
-				<section>Slide 1</section>
-				<section>Slide 2</section>
-			</div>
-		</div>
+    <!-- Theme used for syntax highlighted code -->
+    <link rel="stylesheet" href="/plugin/highlight/monokai.css" />
+  </head>
+  <body>
+    <div class="reveal">
+      <div class="slides">
+        <section>
+          <h1>Abusing the type system</h1>
+          <h3>for fun and for profit</h3>
+        </section>
 
-		<script src="/dist/reveal.js"></script>
-		<script src="/plugin/notes/notes.js"></script>
-		<script src="/plugin/highlight/highlight.js"></script>
-		<script>
-			// More info about initialization & config:
-			// - https://revealjs.com/initialization/
-			// - https://revealjs.com/config/
-			Reveal.initialize({
-				hash: true,
+        <section>
+          <section>
+            <h2>Conrad Ludgate</h2>
+            <aside class="notes">Talk about who you are</aside>
+          </section>
 
-				// Learn about plugins: https://revealjs.com/plugins/
-				plugins: [ RevealHighlight, RevealNotes ]
-			});
-		</script>
-	</body>
+          <section>
+            <img src="rust-community.png"/><br/>
+            https://discord.com/invite/rust-lang-community
+            <aside class="notes">Moderator of</aside>
+          </section>
+
+          <section>
+            <img src="first-rust-commit.png"/><br/>
+            <aside class="notes">Writing Rust for over 5 years</aside>
+          </section>
+
+          <section>
+            <img src="neon.svg" width="500"/><br/>
+            <h3>Serverless Postgres</h3>
+            <h4><a href="https://neon.tech">https://neon.tech/</a></h4>
+            <aside class="notes">Talk about postgres and stuff</aside>
+          </section>
+        </section>
+
+        <section>
+          <section>
+            Raise your hands...
+            <aside class="notes">Everyone should raise their hands now</aside>
+          </section>
+          <section data-auto-animate>
+            <p data-id="question0">Lower your hand if you have</p>
+            <p data-id="question1">never written any Rust?</p>
+          </section>
+          <section data-auto-animate>
+            <p data-id="question0">Lower your hand if you have</p>
+            <p data-id="question1">written a little bit of Rust?</p>
+          </section>
+          <section data-auto-animate>
+            <p data-id="question0">Lower your hand if you have</p>
+            <p data-id="question1">used Rust for a few months?</p>
+          </section>
+          <section data-auto-animate>
+            <p data-id="question0">Lower your hand if you have</p>
+            <p data-id="question1">used Rust for roughly a year?</p>
+          </section>
+        </section>
+
+        <section>
+          <section>Why do we like Rust?</section>
+          <section>
+            <blockquote>
+              Modern APIs, high-level features, and C-speed
+            </blockquote>
+          </section>
+          <section>
+            <blockquote>
+              safety by default, generally not a pain to write
+            </blockquote>
+          </section>
+          <section>
+            <blockquote>It makes my friends think I’m smart</blockquote>
+          </section>
+          <section>
+            ...
+            <aside class="notes">Ask the audience</aside>
+          </section>
+          <section>If it compiles, it works!</section>
+        </section>
+        <section>The end.</section>
+
+        <section>
+          <section>
+            I have to confess...<br />
+            We had a bug at Neon
+          </section>
+          <section>
+            <img src="proxy simple flow.png" />
+          </section>
+
+          <section data-auto-animate>
+            <pre
+              data-id="code-animation"
+            ><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers="1">
+              let key = creds.project().expect("impossible");
+
+              if let Some(cached) = self.caches.node_info.get(key) {
+                  info!(key = key, "found cached compute node info");
+                  return Ok(cached);
+              }
+            </code></pre>
+            <aside class="notes">Old code</aside>
+          </section>
+          <section data-auto-animate>
+            <pre
+              data-id="code-animation"
+            ><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers="1">
+              let key: &str = &creds.cache_key;
+
+              if let Some(cached) = self.caches.node_info.get(key) {
+                  info!(key = key, "found cached compute node info");
+                  return Ok(cached);
+              }
+            </code></pre>
+            <aside class="notes">New code, uses pre-calculated cache key</aside>
+          </section>
+          <section>
+            <pre><code data-trim data-noescape type="text/template" class="language-rust">
+              let cache_key = format!(
+                  "{}{}",
+                  project.as_deref().unwrap_or_default(),
+                  neon_options(params).as_deref().unwrap_or_default(),
+              );
+            </code></pre>
+            <aside class="notes">How the cache key is computed</aside>
+          </section>
+
+          <section>
+            <pre><code data-trim data-noescape type="text/template" class="language-rust">
+              // Password hack should set the project name.
+              // TODO: make `creds.project` more type-safe.
+              assert!(creds.project.is_some());
+            </code></pre>
+            <aside class="notes">This is a load bearing comment</aside>
+          </section>
+
+          <section>
+            <pre><code data-trim data-noescape type="text/template" class="language-rust">
+              let cache_key = format!("");
+            </code></pre>
+            <aside class="notes">
+              Sometimes the cache key is effectively this
+            </aside>
+          </section>
+
+          <section data-auto-animate>
+            <pre
+              data-id="code-animation"
+            ><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+              pub struct ComputeUserInfo {
+                  pub endpoint: Option&LeftAngleBracket;SmolStr&RightAngleBracket;,
+                  pub user: SmolStr,
+                  pub cache_key: SmolStr,
+              }
+            </code></pre>
+            <aside class="notes">
+              Old code, in the mean time project was renamed to endpoint
+            </aside>
+          </section>
+
+          <section data-auto-animate>
+            <pre
+              data-id="code-animation"
+            ><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+              pub struct ComputeUserInfo {
+                  pub endpoint: SmolStr,
+                  pub inner: ComputeUserInfoNoEndpoint,
+              }
+
+              pub struct ComputeUserInfoNoEndpoint {
+                  pub user: SmolStr,
+                  pub cache_key: SmolStr,
+              }
+            </code></pre>
+            <aside class="notes">New code, now with more separation</aside>
+          </section>
+
+          <section data-auto-animate>
+            <pre
+              data-id="code-animation"
+            ><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+              pub struct ComputeUserInfoNoEndpoint {
+                  pub user: SmolStr,
+                  pub options: NeonOptions,
+              }
+
+              pub struct NeonOptions(Vec<(SmolStr, SmolStr)>);
+
+              impl ComputeUserInfo {
+                  pub fn endpoint_cache_key(&self) -> SmolStr {
+                      self.inner.options.get_cache_key(&self.endpoint)
+                  }
+              }
+            </code></pre>
+            <aside class="notes">The actual bug fix</aside>
+          </section>
+
+          <section data-auto-animate>
+            <pre
+              data-id="code-animation"
+            ><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+              pub struct EndpointCacheKey(SmolStr);
+
+              impl ComputeUserInfo {
+                  pub fn endpoint_cache_key(&self) -> EndpointCacheKey {
+                      EndpointCacheKey(self.inner.options.get_cache_key(&self.endpoint))
+                  }
+              }
+            </code></pre>
+            <aside class="notes">
+              How to prevent this happening in the future. EndpointCacheKey can
+              only be constructed by this function, on a ComputeUserInfo struct
+              that must have an endpoint set.
+            </aside>
+          </section>
+
+          <section>
+            <h2>Key findings</h2>
+            <p class="fragment fade-up" data-fragment-index="1">
+              <span class="fragment semi-fade-out" data-fragment-index="2"
+                >Options are not your friends.</span
+              >
+            </p>
+            <p class="fragment fade-up" data-fragment-index="2">
+              Use the newtype pattern.
+            </p>
+            <aside class="notes">
+              Don't use option if the value is not optional.
+
+              Use the newtype pattern to restrict creation of important values to safe places only
+            </aside>
+          </section>
+        </section>
+
+        <section>
+          Lesson 2: State machines
+        </section>
+      </div>
+    </div>
+
+    <script src="/dist/reveal.js"></script>
+    <script src="/plugin/notes/notes.js"></script>
+    <script src="/plugin/highlight/highlight.js"></script>
+    <script src="/plugin/zoom/zoom.js"></script>
+    <script>
+      // More info about initialization & config:
+      // - https://revealjs.com/initialization/
+      // - https://revealjs.com/config/
+      Reveal.initialize({
+        hash: true,
+
+        // Learn about plugins: https://revealjs.com/plugins/
+        plugins: [RevealHighlight, RevealNotes, RevealZoom],
+      });
+    </script>
+  </body>
 </html>
