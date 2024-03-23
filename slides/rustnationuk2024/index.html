@@ -81,7 +81,7 @@
           </section>
           <section>
             <blockquote>
-              safety by default, generally not a pain to write
+              [memory] safety by default, generally not a pain to write
             </blockquote>
           </section>
           <section>
@@ -100,18 +100,67 @@
             I have to confess...<br />
             We had a bug at Neon
           </section>
+          <section data-transition="none-out slide-in">
+            <img src="proxy-simple.png" />
+          </section>
+          <section data-transition="none-in slide-out">
+            <img src="proxy-cplane-cache.png" />
+          </section>
+
+          <section data-auto-animate>
+            <pre
+              data-id="code-animation"
+            ><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+              let key = creds.endpoint().expect("impossible");
+
+              if let Some(cached) = self.caches.node_info.get(key) {
+                  info!(key, "found cached compute node info");
+                  return Ok(cached);
+              }
+
+              let node = self.do_wake_compute(extra, creds).await?;
+              let (_, cached) = self.caches.node_info.insert(key, node);
+              info!(key, "created a cache entry for compute node info");
+
+              Ok(cached)
+            </code></pre>
+            <aside class="notes">Old code</aside>
+          </section>
+
           <section>
-            <img src="proxy simple flow.png" />
+            <img src="pitr.png" />
+            <img src="pitr-query-headers.png" />
+            <aside class="notes">
+              We started development of our point-in-time-restore feature which meant now that the endpoint is no longer sufficient to identifiy a specific postgres instance
+              (don't worry, the password was revoked already)
+            </aside>
+          </section>
+
+          <section>
+            <table>
+              <tr>
+                <td>username</td>
+                <td>conrad</td>
+              </tr>
+              <tr>
+                <td>endpoint</td>
+                <td>br-wispy-mode-73730913</td>
+              </tr>
+              <tr>
+                <td>options</td>
+                <td>neon_timestamp:2024-03-23T11:00:00.000Z</td>
+              </tr>
+            </table>
           </section>
 
           <section data-auto-animate>
             <pre
               data-id="code-animation"
             ><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers="1">
-              let key = creds.project().expect("impossible");
+              let key = creds.endpoint().expect("impossible");
 
               if let Some(cached) = self.caches.node_info.get(key) {
-                  info!(key = key, "found cached compute node info");
+                  info!(key, "found cached compute node info");
                   return Ok(cached);
               }
             </code></pre>
@@ -124,7 +173,7 @@
               let key: &str = &creds.cache_key;
 
               if let Some(cached) = self.caches.node_info.get(key) {
-                  info!(key = key, "found cached compute node info");
+                  info!(key, "found cached compute node info");
                   return Ok(cached);
               }
             </code></pre>
@@ -134,7 +183,7 @@
             <pre><code data-trim data-noescape type="text/template" class="language-rust">
               let cache_key = format!(
                   "{}{}",
-                  project.as_deref().unwrap_or_default(),
+                  endpoint.as_deref().unwrap_or_default(),
                   neon_options(params).as_deref().unwrap_or_default(),
               );
             </code></pre>
@@ -143,9 +192,9 @@
 
           <section>
             <pre><code data-trim data-noescape type="text/template" class="language-rust">
-              // Password hack should set the project name.
-              // TODO: make `creds.project` more type-safe.
-              assert!(creds.project.is_some());
+              // Password hack should set the endpoint name.
+              // TODO: make `creds.endpoint` more type-safe.
+              assert!(creds.endpoint.is_some());
             </code></pre>
             <aside class="notes">This is a load bearing comment</aside>
           </section>
@@ -170,7 +219,7 @@
               }
             </code></pre>
             <aside class="notes">
-              Old code, in the mean time project was renamed to endpoint
+              Old code
             </aside>
           </section>
 
@@ -180,6 +229,11 @@
             ><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
               pub struct ComputeUserInfo {
                   pub endpoint: SmolStr,
+                  pub inner: ComputeUserInfoNoEndpoint,
+              }
+
+              pub struct ComputeUserInfoMaybeEndpoint {
+                  pub endpoint: Option&LeftAngleBracket;SmolStr&RightAngleBracket;,
                   pub inner: ComputeUserInfoNoEndpoint,
               }
 
@@ -249,7 +303,224 @@
         </section>
 
         <section>
-          Lesson 2: State machines
+          <section>
+            Case study 2: rustls</br>
+            <img src="rustls-logo.png" width="300" />
+
+            <aside class="notes">
+              Rustls is a TLS implementation written in 100% safe rust.
+              It has a runtime configurable cryptographic library, supporting _ring_ and AWS libcrypto among others
+            </aside>
+          </section>
+
+          <section>
+            bugs in rustls are catastropic...
+
+            <aside class="notes">
+              Given that rustls is memory safe, no heartbleed can happen, however
+              a bug in rustls could still skip certificate verification,
+              or skip intergrity and authenticity checks...
+              that is bad as a mitm can exploit that.
+            </aside>
+          </section>
+
+          <section data-auto-animate>
+            <pre
+              data-id="code-animation"
+            ><code data-trim data-noescape type="text/template" class="language-c" data-line-numbers>
+              if ((err = SSLHashSHA1.update(&hashCtx, &serverRandom)) != 0)
+                  goto fail;
+              if ((err = SSLHashSHA1.update(&hashCtx, &signedParams)) != 0)
+                  goto fail;
+                  goto fail;
+              if ((err = SSLHashSHA1.final(&hashCtx, &hashOut)) != 0)
+                  goto fail;
+
+              err = sslRawVerify(..);
+            </code></pre>
+
+            <aside class="notes">
+              Ask the class if they recognise this bug from 2014 in apple's SSL implementation,
+              if not, see if they can spot the exact line where the bug is caused.
+            </aside>
+          </section>
+          <section data-auto-animate>
+            <pre
+              data-id="code-animation"
+            ><code data-trim data-noescape type="text/template" class="language-c" data-line-numbers="5">
+              if ((err = SSLHashSHA1.update(&hashCtx, &serverRandom)) != 0)
+                  goto fail;
+              if ((err = SSLHashSHA1.update(&hashCtx, &signedParams)) != 0)
+                  goto fail;
+                  goto fail;
+              if ((err = SSLHashSHA1.final(&hashCtx, &hashOut)) != 0)
+                  goto fail;
+
+              err = sslRawVerify(..);
+            </code></pre>
+            <aside class="notes">
+              This is an unconditional jump.
+            </aside>
+          </section>
+          <section data-auto-animate>
+            <pre
+              data-id="code-animation"
+            ><code data-trim data-noescape type="text/template" class="language-c" data-line-numbers="9">
+              if ((err = SSLHashSHA1.update(&hashCtx, &serverRandom)) != 0)
+              {
+                  goto fail;
+              }
+              if ((err = SSLHashSHA1.update(&hashCtx, &signedParams)) != 0)
+              {
+                  goto fail;
+              }
+                  goto fail;
+              if ((err = SSLHashSHA1.final(&hashCtx, &hashOut)) != 0)
+              {
+                  goto fail;
+              }
+
+              err = sslRawVerify(..);
+            </code></pre>
+          </section>
+          <section>
+            <pre><code data-trim data-noescape type="text/template" class="language-c" data-line-numbers>
+              fail:
+                SSLFreeBuffer(&signedHashes);
+                SSLFreeBuffer(&hashCtx);
+                return err;
+            </code></pre>
+          </section>
+          <section>
+            <pre><code data-trim data-noescape type="text/template" class="language-c" data-line-numbers>
+              if ((err = SSLHashSHA1.update(&hashCtx, &serverRandom)) != 0)
+              {
+                  goto free_and_return;
+              }
+              if ((err = SSLHashSHA1.update(&hashCtx, &signedParams)) != 0)
+              {
+                  goto free_and_return;
+              }
+              goto free_and_return; // err == 0. successful verification.
+              if ((err = SSLHashSHA1.final(&hashCtx, &hashOut)) != 0)
+              {
+                  goto free_and_return;
+              }
+            </code></pre>
+          </section>
+
+          <section>
+            <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+              SSLHashSHA1.update(&mut hashCtx, &serverRandom)?;
+              SSLHashSHA1.update(&mut hashCtx, &signedParams)?;
+              return Ok(());
+              SSLHashSHA1.final(&hashCtx, &mut hashOut)?;
+
+              sslRawVerify(..)?;
+            </code></pre>
+            <aside class="notes">
+              rewritten in rust, the buggy line is immediately obvious, but this misses the point.
+              skipping validation of the server certificate is still 1 line away.
+            </aside>
+          </section>
+
+          <section>
+            <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers="9,10">
+              struct ExpectFinished {
+                  config: Arc<ClientConfig>,
+                  server_name: ServerName<'static>,
+                  randoms: ConnectionRandoms,
+                  suite: &'static Tls13CipherSuite,
+                  transcript: HandshakeHash,
+                  key_schedule: KeyScheduleHandshake,
+                  client_auth: Option<ClientAuthDetails>,
+                  cert_verified: verify::ServerCertVerified,
+                  sig_verified: verify::HandshakeSignatureValid,
+              }
+            </code></pre>
+            <aside class="notes">
+              A finished handshake from a client's perspective.
+            </aside>
+          </section>
+
+          <section>
+            <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+              let cert_verified = self.config.verifier.verify_server_cert(
+                  end_entity,
+                  intermediates,
+                  &self.server_name,
+                  &self.server_cert.ocsp_response,
+                  now,
+              )?;
+            </code></pre>
+            <aside class="notes">
+              A finished handshake from a client's perspective.
+            </aside>
+          </section>
+
+          <section>
+            <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+              let sig_verified = self.config.verifier.verify_tls13_signature(
+                  &construct_server_verify_message(&handshake_hash),
+                  end_entity,
+                  cert_verify,
+              )?;
+            </code></pre>
+            <aside class="notes">
+              A finished handshake from a client's perspective.
+            </aside>
+          </section>
+
+          <section>
+            <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+                impl ServerCertVerifier for WebPkiServerVerifier {
+                    fn verify_server_cert(&self, ...) -> Result<ServerCertVerified, Error> {
+                        verify_server_cert_signed_by_trust_anchor_impl(
+                            &cert,
+                            &self.roots
+                        )?;
+                        verify_server_name(&cert, server_name)?;
+                        Ok(ServerCertVerified::assertion())
+                    }
+                }
+            </code></pre>
+            <aside class="notes">
+              A finished handshake from a client's perspective.
+            </aside>
+          </section>
+
+          <section>
+            <pre><code data-trim data-noescape type="text/template">
+              $ rg "ServerCertVerified::assertion()" rustls/src -C 2
+              rustls/src/client/tls13.rs
+              429-            // We *don't* reverify the certificate chain here: resumption is a
+              430-            // continuation of the previous session in terms of security policy.
+              431:            let cert_verified = verify::ServerCertVerified::assertion();
+              432-            let sig_verified = verify::HandshakeSignatureValid::assertion();
+              433-            Ok(Box::new(ExpectFinished {
+
+              rustls/src/client/tls12.rs
+              139-                            .into_owned(),
+              140-                    );
+              141:                    let cert_verified = verify::ServerCertVerified::assertion();
+              142-                    let sig_verified = verify::HandshakeSignatureValid::assertion();
+              143-
+
+              rustls/src/verify.rs
+              353-    );
+              354-    assert_eq!(
+              355:        format!("{:?}", ServerCertVerified::assertion()),
+              356-        "ServerCertVerified(())"
+              357-    );
+
+              rustls/src/webpki/server_verifier.rs
+              255-
+              256-        verify_server_name(&cert, server_name)?;
+              257:        Ok(ServerCertVerified::assertion())
+              258-    }
+              259-
+            </code></pre>
+          </section>
         </section>
       </div>
     </div>
