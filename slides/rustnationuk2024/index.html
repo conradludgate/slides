@@ -52,22 +52,21 @@
         <section>
           <section>
             Raise your hands...
-            <aside class="notes">Everyone should raise their hands now</aside>
           </section>
           <section data-auto-animate>
-            <p data-id="question0">Lower your hand if you have</p>
+            <p data-id="question0">Raise your hands if you have</p>
             <p data-id="question1">never written any Rust?</p>
           </section>
           <section data-auto-animate>
-            <p data-id="question0">Lower your hand if you have</p>
+            <p data-id="question0">Raise your hands if you have</p>
             <p data-id="question1">written a little bit of Rust?</p>
           </section>
           <section data-auto-animate>
-            <p data-id="question0">Lower your hand if you have</p>
+            <p data-id="question0">Raise your hands if you have</p>
             <p data-id="question1">used Rust for a few months?</p>
           </section>
           <section data-auto-animate>
-            <p data-id="question0">Lower your hand if you have</p>
+            <p data-id="question0">Raise your hands if you have</p>
             <p data-id="question1">used Rust for roughly a year?</p>
           </section>
         </section>
@@ -91,14 +90,25 @@
             ...
             <aside class="notes">Ask the audience</aside>
           </section>
-          <section>If it compiles, it works!</section>
+          <section>
+            If it compiles, it works!
+
+            <aside class="notes">
+              This isn't true, but these sayings don't come from nowhere.
+              Writing Rust in clever ways can eliminate so called "trivial bugs"
+            </aside>
+          </section>
         </section>
-        <section>The end.</section>
 
         <section>
           <section>
             I have to confess...<br />
             We had a bug at Neon
+
+            <aside class="notes">
+              IMPORTANT: it wasn't severe because of security practices we have in place,
+              but you could imagine that this would be a bad bug in other scenarios
+            </aside>
           </section>
           <section data-transition="none-out slide-in">
             <img src="proxy-simple.png" />
@@ -520,6 +530,10 @@
               258-    }
               259-
             </code></pre>
+          </section>
+          <section>
+            <p>state machines</p>
+            <img src="tls-state-1.svg" width="200"/>
           </section>
         </section>
       </div>
