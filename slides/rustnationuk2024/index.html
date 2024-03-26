@@ -20,19 +20,25 @@
     <div class="reveal">
       <div class="slides">
         <section>
-          <h1>Abusing the type system</h1>
-          <h3>for fun and for profit</h3>
+          <section>
+            <h1>Abusing the type system</h1>
+            <h3>for fun and for profit</h3>
+          </section>
         </section>
 
         <section>
           <section>
             <h2>Conrad Ludgate</h2>
+            <a href="https://conradludgate.com/">https://conradludgate.com/</a><br/>
+            <a href="https://github.com/conradludgate/">https://github.com/conradludgate/</a><br/>
+            <a href="https://twitter.com/conradludgate/">https://twitter.com/conradludgate/</a><br/>
+            <img src="me.jpg" width="300" />
             <aside class="notes">Talk about who you are</aside>
           </section>
 
           <section>
             <img src="rust-community.png"/><br/>
-            https://discord.com/invite/rust-lang-community
+            <a href="https://discord.com/invite/rust-lang-community">https://discord.com/invite/rust-lang-community</a>
             <aside class="notes">Moderator of</aside>
           </section>
 
@@ -102,10 +108,12 @@
 
         <section>
           <section>
-            I have to confess...<br />
-            We had a bug at Neon
+            Case study 1:</br>
+
+            <img src="neon.svg" width="300" />
 
             <aside class="notes">
+              We had a bug in my service at neon
               IMPORTANT: it wasn't severe because of security practices we have in place,
               but you could imagine that this would be a bad bug in other scenarios
             </aside>
@@ -223,7 +231,7 @@
               data-id="code-animation"
             ><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
               pub struct ComputeUserInfo {
-                  pub endpoint: Option&LeftAngleBracket;SmolStr&RightAngleBracket;,
+                  pub endpoint: Option&lt;SmolStr&gt;,
                   pub user: SmolStr,
                   pub cache_key: SmolStr,
               }
@@ -243,7 +251,7 @@
               }
 
               pub struct ComputeUserInfoMaybeEndpoint {
-                  pub endpoint: Option&LeftAngleBracket;SmolStr&RightAngleBracket;,
+                  pub endpoint: Option&lt;SmolStr&gt;,
                   pub inner: ComputeUserInfoNoEndpoint,
               }
 
@@ -314,7 +322,7 @@
 
         <section>
           <section>
-            Case study 2: rustls</br>
+            Case study 2:</br>
             <img src="rustls-logo.png" width="300" />
 
             <aside class="notes">
@@ -533,7 +541,342 @@
           </section>
           <section>
             <p>state machines</p>
-            <img src="tls-state-1.svg" width="200"/>
+            <img src="tls-state-2.svg" width="400"/>
+            <aside class="notes">
+              Rustls client side handshake state machine.
+              left side is TLS1.2. right side is TLS1.3.
+            </aside>
+          </section>
+          <section>
+            <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+              pub(super) type NextState&lt;'a&gt; = Box&lt;dyn State&lt;ClientConnectionData&gt; + 'a&gt;;
+              pub(super) type NextStateOrError&lt;'a&gt; = Result&lt;NextState&lt;'a&gt;, Error&gt;;
+
+              pub(crate) trait State&lt;Data&gt;: Send + Sync {
+                  fn handle&lt;'m&gt;(
+                      self: Box&lt;Self&gt;,
+                      cx: &mut Context&lt;'_, Data&gt;,
+                      message: Message&lt;'m&gt;,
+                  ) -&gt; Result&lt;Box&lt;dyn State&lt;Data&gt; + 'm&gt;, Error&gt;
+                  where
+                      Self: 'm;
+
+                  fn export_keying_material(
+                      &self,
+                      _output: &mut [u8],
+                      _label: &[u8],
+                      _context: Option&lt;&[u8]&gt;,
+                  ) -&gt; Result&lt;(), Error&gt; {
+                      Err(Error::HandshakeNotComplete)
+                  }
+
+                  fn extract_secrets(&self) -&gt; Result&lt;PartiallyExtractedSecrets, Error&gt; {
+                      Err(Error::HandshakeNotComplete)
+                  }
+
+                  fn handle_decrypt_error(&self) {}
+
+                  fn into_owned(self: Box&lt;Self&gt;) -&gt; Box&lt;dyn State&lt;Data&gt; + 'static&gt;;
+              }
+            </code></pre>
+          </section>
+          <section>
+            <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+              struct ExpectCertificateOrCertReq {
+                  config: Arc&lt;ClientConfig&gt;,
+                  server_name: ServerName&lt;'static&gt;,
+                  randoms: ConnectionRandoms,
+                  suite: &'static Tls13CipherSuite,
+                  transcript: HandshakeHash,
+                  key_schedule: KeyScheduleHandshake,
+              }
+              
+              impl State&lt;ClientConnectionData&gt; for ExpectCertificateOrCertReq {
+                  fn handle&lt;'m&gt;(
+                      self: Box&lt;Self&gt;,
+                      cx: &mut ClientContext&lt;'_&gt;,
+                      m: Message&lt;'m&gt;,
+                  ) -&gt; hs::NextStateOrError&lt;'m&gt;
+                  where
+                      Self: 'm,
+                  {
+                      match m.payload {
+                          MessagePayload::Handshake {
+                              parsed:
+                                  HandshakeMessagePayload {
+                                      payload: HandshakePayload::CertificateTls13(..),
+                                      ..
+                                  },
+                              ..
+                          } =&gt; Box::new(ExpectCertificate {
+                              config: self.config,
+                              server_name: self.server_name,
+                              randoms: self.randoms,
+                              suite: self.suite,
+                              transcript: self.transcript,
+                              key_schedule: self.key_schedule,
+                              client_auth: None,
+                          })
+                          .handle(cx, m),
+                          MessagePayload::Handshake {
+                              parsed:
+                                  HandshakeMessagePayload {
+                                      payload: HandshakePayload::CertificateRequestTls13(..),
+                                      ..
+                                  },
+                              ..
+                          } =&gt; Box::new(ExpectCertificateRequest {
+                              config: self.config,
+                              server_name: self.server_name,
+                              randoms: self.randoms,
+                              suite: self.suite,
+                              transcript: self.transcript,
+                              key_schedule: self.key_schedule,
+                          })
+                          .handle(cx, m),
+                          payload =&gt; Err(inappropriate_handshake_message(
+                              &payload,
+                              &[ContentType::Handshake],
+                              &[
+                                  HandshakeType::Certificate,
+                                  HandshakeType::CertificateRequest,
+                              ],
+                          )),
+                      }
+                  }
+
+                  fn into_owned(self: Box&lt;Self&gt;) -&gt; hs::NextState&lt;'static&gt; {
+                      self
+                  }
+              }
+            </code></pre>
+          </section>
+          <section>
+            <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+              impl State<ClientConnectionData> for ExpectCertificate {
+                  fn handle<'m>(
+                      mut self: Box<Self>,
+                      cx: &mut ClientContext<'_>,
+                      m: Message<'m>,
+                  ) -> hs::NextStateOrError<'m>
+                  where
+                      Self: 'm,
+                  {
+                      self.transcript.add_message(&m);
+                      let cert_chain = require_handshake_msg_move!(
+                          m,
+                          HandshakeType::Certificate,
+                          HandshakePayload::CertificateTls13
+                      )?;
+
+                      // This is only non-empty for client auth.
+                      if !cert_chain.context.0.is_empty() {
+                          return Err(cx.common.send_fatal_alert(
+                              AlertDescription::DecodeError,
+                              InvalidMessage::InvalidCertRequest,
+                          ));
+                      }
+
+                      if cert_chain.any_entry_has_duplicate_extension()
+                          || cert_chain.any_entry_has_unknown_extension()
+                      {
+                          return Err(cx.common.send_fatal_alert(
+                              AlertDescription::UnsupportedExtension,
+                              PeerMisbehaved::BadCertChainExtensions,
+                          ));
+                      }
+                      let end_entity_ocsp = cert_chain.end_entity_ocsp();
+                      let server_cert = ServerCertDetails::new(cert_chain.convert(), end_entity_ocsp);
+
+                      Ok(Box::new(ExpectCertificateVerify {
+                          config: self.config,
+                          server_name: self.server_name,
+                          randoms: self.randoms,
+                          suite: self.suite,
+                          transcript: self.transcript,
+                          key_schedule: self.key_schedule,
+                          server_cert,
+                          client_auth: self.client_auth,
+                      }))
+                  }
+
+                  fn into_owned(self: Box<Self>) -> hs::NextState<'static> {
+                      self
+                  }
+              }
+            </code></pre>
+          </section>
+        </section>
+        <section>
+          <section>
+            Case study 3:</br>PASETO/PASERK
+            <aside class="notes">
+              Platform Agnostic Security Tokens +
+              Platform Agnostic Serializable Keys.
+
+              Like JWT and JWK but better:tm:
+            </aside>
+          </section>
+
+
+          <section>
+            <blockquote>
+              Paseto gives you "versioned protocols". It's incredibly unlikely that you'll be able to use Paseto in an insecure way
+            </blockquote>
+          </section>
+
+          <section>
+            <pre><code data-trim data-noescape type="text/template">
+              v2.public.eyJleHAiOiIyMDM5LTAxLTAxVDAwOjAwOjAwKzAwOjAwIiwiZGF0YSI6InRoaXMgaXMgYSBzaWduZWQgbWVzc2FnZSJ91gC7-jCWsN3mv4uJaZxZp0btLJgcyVwL-svJD7f4IHyGteKe3HTLjHYTGHI1MtCqJ-ESDLNoE7otkIzamFskCA
+            </code></pre>
+
+            <pre><code data-trim data-noescape type="text/template" class="language-json">
+              {
+                "data": "this is a signed message",
+                "exp": "2039-01-01T00:00:00+00:00"
+              }
+            </code></pre>
+
+            <aside class="notes">
+              Version 2 of the PASETO specification, Public (signed).
+            </aside>
+          </section>
+
+          <section>
+            <blockquote>
+              It MUST NOT be possible for a user to take a known public key (used by public tokens), and generate a local token with the same key that any PASETO implementations will accept.
+            </blockquote>
+          </section>
+
+          <section>
+            <pre>
+              <code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+                trait Purpose: sealed::Sealed {}
+                struct PurposeLocal;
+                struct PurposePublic;
+
+                impl Purpose for PurposeLocal {}
+                impl Purpose for PurposePublic {}
+              </code>
+            </pre>
+          </section>
+
+          <section>
+            <pre>
+              <code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+                trait KeyType: sealed::Sealed {
+                    type Purpose: Purpose;
+                }
+                struct KeyTypeLocal;
+                struct KeyTypePublic;
+                struct KeyTypeSecret;
+
+                impl KeyType for KeyTypeLocal { type Purpose = PurposeLocal; }
+                impl KeyType for KeyTypePublic { type Purpose = PurposePublic; }
+                impl KeyType for KeyTypeSecret { type Purpose = PurposePublic; }
+              </code>
+            </pre>
+          </section>
+
+          <section>
+            <pre>
+              <code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+                pub struct Key&lt;KeyType: KeyType&gt; {
+                    key_data: Vec&lt;u8&gt;,
+                    key_type: PhantomData&lt;KeyType&gt;,
+                }
+                pub type SymmetricKey = Key&lt;KeyTypeLocal&gt;;
+                pub type AsymmetricPublicKey = Key&lt;KeyTypePublic&gt;;
+                pub type AsymmetricSecretKey = Key&lt;KeyTypeSecret&gt;;
+              </code>
+            </pre>
+          </section>
+
+          <section>
+            <blockquote>
+              The version of a PASERK MUST match the version of the PASETO it's used with. For example, a <code>k2.local.</code> PASERK must be used with <code>v2.local</code>. tokens. Cross-version support is explicitly NOT permitted.
+            </blockquote>
+          </section>
+
+          <section>
+            <pre>
+              <code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+                trait Version: sealed::Sealed {}
+                struct V3;
+                struct V4;
+
+                impl Version for V3 {}
+                impl Version for V4 {}
+              </code>
+            </pre>
+          </section>
+
+          <section>
+            <pre>
+              <code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+                pub struct Key&lt;KeyType: KeyType, Version: Version&gt; {
+                    key_data: Vec&lt;u8&gt;,
+                    key_type: PhantomData&lt;KeyType&gt;,
+                    version: PhantomData&lt;Version&gt;,
+                }
+                pub type SymmetricKey&lt;V&gt; = Key&lt;KeyTypeLocal, V&gt;;
+                pub type AsymmetricPublicKey&lt;V&gt; = Key&lt;KeyTypePublic, V&gt;;
+                pub type AsymmetricSecretKey&lt;V&gt; = Key&lt;KeyTypeSecret, V&gt;;
+              </code>
+            </pre>
+          </section>
+
+          <section>
+            <pre>
+              <code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+                pub struct TokenBuilder&lt;Purpose: Purpose, Version: Version&gt; { ... }
+                pub struct EncodedToken&lt;Purpose: Purpose, Version: Version&gt; { ... }
+
+                impl&lt;Version: Version&gt; TokenBuilder&lt;PurposePublic, Version&gt; {
+                    pub fn sign(self, key: AsymmetricSecretKey&lt;Version&gt;)
+                        -> EncodedToken&lt;PurposePublic, Version&gt; { .. }
+                }
+
+                impl&lt;Version: Version&gt; TokenBuilder&lt;PurposeLocal, Version&gt; {
+                    pub fn encrypt(self, key: SymmetricKey&lt;Version&gt;)
+                        -> EncodedToken&lt;PurposeLocal, Version&gt; { .. }
+                }
+              </code>
+            </pre>
+          </section>
+
+          <section>
+            <pre>
+              <code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+                pub struct DecodedToken&lt;Purpose: Purpose, Version: Version&gt; { ... }
+
+                impl&lt;Version: Version&gt; EncodedToken&lt;PurposePublic, Version&gt; {
+                    pub fn verify_signature(self, key: AsymmetricPublicKey&lt;Version&gt;)
+                        -> DecodedToken&lt;PurposePublic, Version&gt; { .. }
+                }
+
+                impl&lt;Version: Version&gt; EncodedToken&lt;PurposeLocal, Version&gt; {
+                    pub fn decrypt(self, key: SymmetricKey&lt;Version&gt;)
+                        -> DecodedToken&lt;PurposeLocal, Version&gt; { .. }
+                }
+              </code>
+            </pre>
+          </section>
+        </section>
+
+        <section>
+          <section>
+            Case study 4:</br>Your turn
+            <aside class="notes">What will you write next, taking inspiration from here?</aside>
+          </section>
+
+          <section>
+            <h2>Any questions?</h2>
+            <a href="https://conradludgate.com/">https://conradludgate.com/</a><br/>
+            <a href="https://github.com/conradludgate/">https://github.com/conradludgate/</a><br/>
+            <a href="https://twitter.com/conradludgate/">https://twitter.com/conradludgate/</a><br/>
+            <img src="me.jpg" width="200" /><br/>
+            <img src="neon.svg" width="200" />
           </section>
         </section>
       </div>
