@@ -19,6 +19,8 @@
       .space {
         padding-left: 20px;
       }
+
+
     </style>
   </head>
   <body>
@@ -53,7 +55,7 @@
         </section>
         <section>
           <section>
-            <span class="title">proxy &gt; handshake</span>
+            <span class="title">proxy / handshake</span>
             <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
               let (mut stream, params) = match handshake(stream, tls).await? {
                   HandshakeData::Startup(stream, params) =&gt; (stream, params),
@@ -72,7 +74,7 @@
           </section>
 
           <section>
-            <span class="title">proxy &gt; authenticate</span>
+            <span class="title">proxy / authenticate</span>
             <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
               let res = user_info.authenticate(
                   ctx,
@@ -93,7 +95,7 @@
           </section>
 
           <section>
-            <span class="title">proxy &gt; wake</span>
+            <span class="title">proxy / wake</span>
 
             <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
               loop {
@@ -117,7 +119,7 @@
           </section>
 
           <section>
-            <span class="title">proxy &gt; passthrough</span>
+            <span class="title">proxy / passthrough</span>
 
             <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
               let mut node = connect(ctx, &amp;params, &amp;user_info).await?;
@@ -133,7 +135,7 @@
 
         <section>
           <section>
-            <span class="title">pageserver &gt; GetPage@LSN</span>
+            <span class="title">pageserver / GetPage@LSN</span>
 
             <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
               let neon_fe_msg = PagestreamFeMessage::parse(
@@ -158,7 +160,7 @@
           </section>
 
           <section>
-            <span class="title">pageserver &gt; GetPage@LSN &gt; lookup_cached_page</span>
+            <span class="title">pageserver / GetPage@LSN / lookup_cached_page</span>
             <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
               let lookup = self.lookup_cached_page(&amp;key, lsn, ctx).await;
               let cached_page_img = match lookup {
@@ -182,7 +184,7 @@
           </section>
 
           <section>
-            <span class="title">pageserver &gt; GetPage@LSN &gt; reconstruct_value</span>
+            <span class="title">pageserver / GetPage@LSN / reconstruct_value</span>
             <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
               let mut reconstruct_state = ValueReconstructState {
                   records: Vec::new(),
@@ -207,7 +209,7 @@
 
         <section>
           <section>
-            <span class="title">safekeeper &gt; START_WAL_PUSH</span>
+            <span class="title">safekeeper / START_WAL_PUSH</span>
 
             <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
               let (msg_tx, msg_rx) = channel(MSG_QUEUE_SIZE);
@@ -232,7 +234,7 @@
           </section>
 
           <section>
-            <span class="title">safekeeper &gt; handle_append_request</span>
+            <span class="title">safekeeper / handle_append_request</span>
 
             <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
               self.wal_store.write_wal(msg.h.begin_lsn, &msg.wal_data).await?;
@@ -254,7 +256,7 @@
           </section>
 
           <section>
-            <span class="title">safekeeper &gt; WalBackupTask</span>
+            <span class="title">safekeeper / WalBackupTask</span>
 
             <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
               let mut backup_lsn = Lsn(0);
@@ -285,7 +287,7 @@
 
         <section>
           <section>
-            <span class="title">pageservers &gt; START_REPLICATION</span>
+            <span class="title">pageservers / START_REPLICATION</span>
 
             <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
               let query = format!("START_REPLICATION PHYSICAL {startpoint}");
@@ -308,7 +310,7 @@
           </section>
 
           <section>
-            <span class="title">pageservers &gt; START_REPLICATION</span>
+            <span class="title">pageservers / START_REPLICATION</span>
 
             <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
               let data = xlog_data.data();

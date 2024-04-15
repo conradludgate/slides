@@ -18,11 +18,11 @@
 	position: fixed;
 	z-index: 20;
 	width: 100%;
-	font-size: var(--r-heading3-size);
+	font-size: var(--r-heading1-size);
 	text-align: center;
 	letter-spacing: 0em;
-	padding-top: 0.5vh;
-	padding-bottom: 0.5vh;
+	padding-top: 2vh;
+	padding-bottom: 2vh;
 	top: 0;
 }
 
@@ -52,4 +52,16 @@
 
 span.title {
     display: none;
+}
+
+.print-pdf span.title {
+    display: inline-block;
+
+    opacity: 1;
+    z-index: 20;
+    width: 100%;
+    font-size: var(--r-heading3-size);
+    top: 0;
+
+    line-height: 1.2em;
 }
