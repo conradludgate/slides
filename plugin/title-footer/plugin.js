@@ -14,8 +14,6 @@
 const Plugin = {
 	id: 'title-footer',
 	init: (deck) => {
-		console.log(deck);
-
 		const link = document.createElement("link");
 		link.href = "/plugin/title-footer/title-footer.css";
 		link.type = "text/css";
@@ -36,16 +34,7 @@ const Plugin = {
 
 		title_footer.classList.add("no-title-footer")
 
-		// const title_span = deck.getCurrentSlide()?.querySelector('span.title');
-		// if (!title_span) {
-		// 	title_footer.style.display = 'none';
-		// 	return;
-		// }
-		// title_footer_p.innerText = title_span.innerText;
-		// title_footer.style.display = 'block';
-
-		Reveal.on( 'slidechanged', event => {
-			console.log(event);
+		deck.on( 'slidechanged', event => {
 			const title_span = event.currentSlide.querySelector('span.title');
 			if (!title_span) {
 				// title_footer.style.display = 'none';
@@ -55,7 +44,6 @@ const Plugin = {
 			title_footer_p.innerText = title_span.innerText;
 			title_footer.classList.remove("no-title-footer")
 		});
-
 	}
 }
 

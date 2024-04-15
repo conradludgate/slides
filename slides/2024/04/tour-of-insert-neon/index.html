@@ -7,7 +7,7 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
 
-    <title>reveal.js</title>
+    <title>A tour of an INSERT</title>
 
     <link rel="stylesheet" href="/dist/reset.css" />
     <link rel="stylesheet" href="/dist/reveal.css" />
@@ -27,11 +27,11 @@
         <section>
           <h2>A tour of an INSERT</h2>
           <p>How we built our Postgres database in Rust</p>
-          <a href="https://conradludgate.com/">https://conradludgate.com/</a><br />
-          <a href="https://neon.tech">https://neon.tech/</a><br/>
           <img src="neon.svg" height="100"/>
           <span class="space"/>
-          <img src="me.jpg" height="100" />
+          <img src="me.jpg" height="100" /><br/>
+          <a href="https://neon.tech">https://neon.tech</a><br/>
+          <a href="https://conradludgate.com/">https://conradludgate.com</a><br />
 
           <aside class="notes">
             At Neon, we have just officially launched our Serverless Postgres platform.
@@ -43,9 +43,8 @@
         </section>
         <section>
           <pre><code data-trim data-noescape type="text/template" class="language-bash">
-            psql --host=my-endpoint.ap-southeast-2.aws.neon.tech
-              -c "INSERT INTO rust_meetups (name, date)
-                  VALUES ('RustAU Sydney', '2024-04-17')"
+            psql "postgres://conrad:password@my-endpoint.ap-southeast-2.aws.neon.tech/main"
+              -c "INSERT INTO rust_meetups (name, date) VALUES ('RustAU Sydney', '2024-04-17')"
           </code></pre>
 
           <aside class="notes">
@@ -131,6 +130,7 @@
             </aside>
           </section>
         </section>
+
         <section>
           <section>
             <span class="title">pageserver &gt; GetPage@LSN</span>
@@ -149,7 +149,7 @@
             </code></pre>
 
             <aside class="notes">
-              Proxy has streamed the insert query to postgres, now postgres needs to load the table schema.
+              Proxy has streamed the insert query to postgres, now postgres needs to load the table schema and any index data for BTree operations.
               Neon has separated the storage layer out of postgres. This is what allows us to have 100ms cold starts
               as your database VM does not need to download the potentially several GB base backup to startup.
 
@@ -189,7 +189,7 @@
                   img: cached_page_img,
               };
 
-              self.get_reconstruct_data(key, lsn, &mut reconstruct_state, ctx).await?;
+              self.get_reconstruct_data(key, lsn, &amp;mut reconstruct_state, ctx).await?;
               let page = self.reconstruct_value(key, lsn, reconstruct_state).await?;
             </code></pre>
 
@@ -202,25 +202,147 @@
 
               Image layers contain full pages, delta layers contain compressed page diffs
             </aside>
-
           </section>
-
         </section>
+
         <section>
           <section>
             <span class="title">safekeeper &gt; START_WAL_PUSH</span>
-          </section>
-          <section>
 
+            <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+              let (msg_tx, msg_rx) = channel(MSG_QUEUE_SIZE);
+              let (reply_tx, reply_rx) = channel(REPLY_QUEUE_SIZE);
+              let handle = Some(WalAcceptor::spawn(tli, msg_rx, reply_tx));
+
+              select! {
+                  // Forward all messages to WalAcceptor
+                  r = read_network_loop(self.pgb_reader, msg_tx, next_msg).await =&gt; r,
+                  // Forward all messages to Postgres
+                  r = network_write(pgb, reply_rx, pageserver_feedback_rx).await =&gt; r,
+              };
+              handle.await;
+            </code></pre>
+
+            <aside class="notes">
+              Postgres now has all the data it needs to perform the write. It updates the page in memory,
+              now we need to save it. This is where the 'safekeepers' come in.
+
+              Postgres streams out WAL pages to many safekeepers, for... safekeeping...
+            </aside>
+          </section>
+
+          <section>
+            <span class="title">safekeeper &gt; handle_append_request</span>
+
+            <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+              self.wal_store.write_wal(msg.h.begin_lsn, &msg.wal_data).await?;
+
+              // flush wal to the disk, if required
+              if require_flush {
+                  self.wal_store.flush_wal().await?;
+              }
+      
+              // report that the WAL was written
+              let resp = self.append_response();
+              Ok(Some(AcceptorProposerMessage::AppendResponse(resp)))
+            </code></pre>
+
+            <aside class="notes">
+              The safekeepers will process all 'append' requests by saving to disk. sending a message
+              back to Postgres that the data was written.
+            </aside>
+          </section>
+
+          <section>
+            <span class="title">safekeeper &gt; WalBackupTask</span>
+
+            <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+              let mut backup_lsn = Lsn(0);
+
+              loop {
+                  self.commit_lsn_watch_rx.changed().await;
+                  let commit_lsn = *self.commit_lsn_watch_rx.borrow();
+                  backup_lsn = self.timeline.get_wal_backup_lsn().await;
+      
+                  backup_lsn_range(
+                      &amp;self.timeline,
+                      &amp;mut backup_lsn,
+                      commit_lsn,
+                      self.wal_seg_size,
+                      &amp;self.timeline_dir,
+                      &amp;self.workspace_dir,
+                      self.parallel_jobs,
+                  )
+                  .await;
+              }
+            </code></pre>
+
+            <aside class="notes">
+              Once data is flushed to several safekeeper disks, one safekeeper will occasionally back up the WAL to S3 or some other durable object store.
+            </aside>
           </section>
         </section>
+
         <section>
           <section>
             <span class="title">pageservers &gt; START_REPLICATION</span>
-          </section>
-          <section>
 
+            <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+              let query = format!("START_REPLICATION PHYSICAL {startpoint}");
+
+              let copy_stream = replication_client.copy_both_simple(&amp;query).await?;
+              let mut physical_stream = pin!(ReplicationStream::new(copy_stream));
+
+              let mut waldecoder = WalStreamDecoder::new(startpoint, timeline.pg_version);
+          
+              let mut walingest = WalIngest::new(timeline.as_ref(), startpoint, &amp;ctx).await?;
+            </code></pre>
+
+            <aside class="notes">
+              At this point, postgres is happy that the data has been written, but the work is not yet done.
+
+              Our safekeepers have saved the WAL, but pageservers do not know about this data. Our pageservers
+              will open a 'physical replication slot' with one of the safekeepers in order to receive the WAL from safekeepers
+              once it is considered commited.
+            </aside>
           </section>
+
+          <section>
+            <span class="title">pageservers &gt; START_REPLICATION</span>
+
+            <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+              let data = xlog_data.data();
+              let startlsn = Lsn::from(xlog_data.wal_start());
+
+              waldecoder.feed_bytes(data);
+
+              let mut decoded = DecodedWALRecord::default();
+              let mut modification = timeline.begin_modification(startlsn);
+              while let Some((lsn, recdata)) = waldecoder.poll_decode()? {
+                  // Ingest the records.
+                  walingest.ingest_record(recdata, lsn, &amp;mut modification, &amp;mut decoded, &amp;ctx).await?;
+              }
+            </code></pre>
+
+            <aside class="notes">
+              We read the WAL data from safekeepers, send them to the separate 'walingest' process to rebuild any page data.
+            </aside>
+          </section>
+        </section>
+
+        <section>
+          <h2>Thank you</h2>
+          <a href="https://github.com/neondatabase/neon">https://github.com/neondatabase/neon</a><br/>
+          <a href="https://neon.tech/blog/category/engineering">https://neon.tech/blog/category/engineering</a><br/>
+          <img src="neon.svg" height="100"/>
+          <span class="space"/>
+          <img src="me.jpg" height="100" /><br/>
+          <a href="https://neon.tech">https://neon.tech</a><br/>
+          <a href="https://conradludgate.com/">https://conradludgate.com</a><br />
+
+          <aside class="notes">
+            And 10 minutes later, we have built a database in Rust. Easy peasy.
+          </aside>
         </section>
       </div>
     </div>
