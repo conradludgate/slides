@@ -41,6 +41,187 @@
             Let's take a tour of an INSERT query and see how it all fits together.
           </aside>
         </section>
+        <section>
+          <pre><code data-trim data-noescape type="text/template" class="language-bash">
+            psql --host=my-endpoint.ap-southeast-2.aws.neon.tech
+              -c "INSERT INTO rust_meetups (name, date)
+                  VALUES ('RustAU Sydney', '2024-04-17')"
+          </code></pre>
+
+          <aside class="notes">
+            Let's take this simple query.
+          </aside>
+        </section>
+        <section>
+          <section>
+            <span class="title">proxy &gt; handshake</span>
+            <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+              let (mut stream, params) = match handshake(stream, tls).await? {
+                  HandshakeData::Startup(stream, params) =&gt; (stream, params),
+                  HandshakeData::Cancel(cancel_key_data) =&gt; {
+                      return Ok(cancellation_handler
+                          .cancel_session(cancel_key_data, ctx.session_id)
+                          .await
+                          .map(|()| None)?)
+                  }
+              };
+            </code></pre>
+            <aside class="notes">
+              First things first, we accept a new TCP connection and perform the postgres handshake.
+              This sets up the TLS connection and also receives any startup params like user and database name.
+            </aside>
+          </section>
+
+          <section>
+            <span class="title">proxy &gt; authenticate</span>
+            <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+              let res = user_info.authenticate(
+                  ctx,
+                  &mut stream,
+                  &config.authentication_config
+              ).await;
+              let user_info = match res {
+                  Ok(auth_result) =&gt; auth_result,
+                  Err(e) =&gt; {
+                      return stream.throw_error(e).await?;
+                  }
+              };
+            </code></pre>
+            <aside class="notes">
+              Now, we need to confirm you are who you say you are. We perform the SCRAM authentication protocol
+              to securely verify your password is correct, with included MitM protection
+            </aside>
+          </section>
+
+          <section>
+            <span class="title">proxy &gt; wake</span>
+
+            <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+              loop {
+                  match handle_try_wake(api.wake_compute(ctx).await) {
+                      // do not retry error
+                      Err(e) =&gt; {
+                          report_error(&e, false);
+                          return Err(e);
+                      }
+                      // retry error
+                      Ok(Continue(e)) =&gt; report_error(&e, true),
+                      // success
+                      Ok(Break(n)) =&gt; return Ok(n),
+                  }
+              }
+            </code></pre>
+            <aside class="notes">
+              Neon is a serverless postgres platform. That means the servers are our problem. If your postgres server is not running,
+              we start it now, making sure to handle any spurious or temporary failure modes.
+            </aside>
+          </section>
+
+          <section>
+            <span class="title">proxy &gt; passthrough</span>
+
+            <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+              let mut node = connect(ctx, &amp;params, &amp;user_info).await?;
+              let session = cancellation_handler.get_session();
+              prepare_client(&amp;node, &amp;session, &amp;mut stream).await?;
+              proxy_pass(stream, node, session).await?;
+            </code></pre>
+            <aside class="notes">
+              You are authenticated, your database is running. Connect to the database and switch to the transparent passthrough mode.
+            </aside>
+          </section>
+        </section>
+        <section>
+          <section>
+            <span class="title">pageserver &gt; GetPage@LSN</span>
+
+            <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+              let neon_fe_msg = PagestreamFeMessage::parse(
+                  &mut copy_data_bytes.reader()
+              )?;
+              let response = match neon_fe_msg {
+                  PagestreamFeMessage::GetPage(req) =&gt; {
+                      self.handle_get_page_at_lsn_request(
+                          tenant_id, timeline_id, &req, &ctx
+                      ).await
+                  }
+              }
+            </code></pre>
+
+            <aside class="notes">
+              Proxy has streamed the insert query to postgres, now postgres needs to load the table schema.
+              Neon has separated the storage layer out of postgres. This is what allows us to have 100ms cold starts
+              as your database VM does not need to download the potentially several GB base backup to startup.
+
+              Instead, any non-cached pages will skip the disk and go straight to our custom storage engine, called the Pageserver.
+            </aside>
+          </section>
+
+          <section>
+            <span class="title">pageserver &gt; GetPage@LSN &gt; lookup_cached_page</span>
+            <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+              let lookup = self.lookup_cached_page(&amp;key, lsn, ctx).await;
+              let cached_page_img = match lookup {
+                  Some((cached_lsn, cached_img)) =&gt; {
+                      match cached_lsn.cmp(&amp;lsn) {
+                          // there might be WAL between cached_lsn
+                          // and lsn, we need to check
+                          Less =&gt; Some((cached_lsn, cached_img)),
+                          // exact LSN match, return the image
+                          Equal =&gt; return Ok(cached_img),
+                          Greater =&gt; unreachable!()
+                      }
+                  }
+                  None =&gt; None,
+              };
+            </code></pre>
+
+            <aside class="notes">
+              If we're lucky, this page is already cached at this LSN. This is backed by a hashmap and fixed size memory buffer of 128MB.
+            </aside>
+          </section>
+
+          <section>
+            <span class="title">pageserver &gt; GetPage@LSN &gt; reconstruct_value</span>
+            <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+              let mut reconstruct_state = ValueReconstructState {
+                  records: Vec::new(),
+                  img: cached_page_img,
+              };
+
+              self.get_reconstruct_data(key, lsn, &mut reconstruct_state, ctx).await?;
+              let page = self.reconstruct_value(key, lsn, reconstruct_state).await?;
+            </code></pre>
+
+            <aside class="notes">
+              Either we have a cached page, but not fully up to date, or we have no page at all.
+              either way, we need to reconstruct the new page.
+
+              Neon's KV page storage is built on top of a custom LSM tree, with 'image' and 'delta' layers.
+              These are either cached in memory, saved to disk, or available in S3.
+
+              Image layers contain full pages, delta layers contain compressed page diffs
+            </aside>
+
+          </section>
+
+        </section>
+        <section>
+          <section>
+            <span class="title">safekeeper &gt; START_WAL_PUSH</span>
+          </section>
+          <section>
+
+          </section>
+        </section>
+        <section>
+          <section>
+            <span class="title">pageservers &gt; START_REPLICATION</span>
+          </section>
+          <section>
+
+          </section>
+        </section>
       </div>
     </div>
 
@@ -48,6 +229,7 @@
     <script src="/plugin/notes/notes.js"></script>
     <script src="/plugin/highlight/highlight.js"></script>
     <script src="/plugin/zoom/zoom.js"></script>
+    <script src="/plugin/title-footer/title-footer.js"></script>
     <script>
       // More info about initialization & config:
       // - https://revealjs.com/initialization/
@@ -55,8 +237,11 @@
       Reveal.initialize({
         hash: true,
 
+        width: 1400,
+        height: 700,
+
         // Learn about plugins: https://revealjs.com/plugins/
-        plugins: [RevealHighlight, RevealNotes, RevealZoom],
+        plugins: [RevealHighlight, RevealNotes, RevealZoom, RevealTitleFooter],
       });
     </script>
   </body>

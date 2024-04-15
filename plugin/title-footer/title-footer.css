@@ -1,0 +1,55 @@
+/*************************************************
+*                                                *
+* CSS for the Title-Footer plugin for Reveal.js  *
+*                                                *
+* Author: Igor Leturia                           *
+*                                                *
+* License: GPL v3                                *
+* http://www.gnu.org/copyleft/gpl.html           *
+*                                                *
+*************************************************/
+
+/* Style for the Title-Footer footer */
+
+#title-footer
+{
+	opacity: 1;
+	transition: opacity 400ms ease-in-out;
+	position: fixed;
+	z-index: 20;
+	width: 100%;
+	font-size: var(--r-heading3-size);
+	text-align: center;
+	letter-spacing: 0em;
+	padding-top: 0.5vh;
+	padding-bottom: 0.5vh;
+	top: 0;
+}
+
+/* This is to fix the positioning of the title which goes off screen due to a new reveal.js CSS property. */
+
+#title-footer p
+{
+	margin: 0px;
+	line-height: 1.2em;
+}
+
+/* Make Title-Footer invisible if explicitly indicated */
+
+#title-footer.no-title-footer
+{
+	opacity: 0;
+	transition: opacity 400ms ease-in-out;
+}
+
+/* Make Title-Footer invisible in overview mode */
+
+.overview #title-footer
+{
+	opacity: 0;
+	transition: opacity 400ms ease-in-out;
+}
+
+span.title {
+    display: none;
+}

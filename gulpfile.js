@@ -122,6 +122,7 @@ gulp.task('plugins', () => {
         { name: 'RevealNotes', input: './plugin/notes/plugin.js', output: './plugin/notes/notes' },
         { name: 'RevealZoom', input: './plugin/zoom/plugin.js', output: './plugin/zoom/zoom' },
         { name: 'RevealMath', input: './plugin/math/plugin.js', output: './plugin/math/math' },
+        { name: 'RevealTitleFooter', input: './plugin/title-footer/plugin.js', output: './plugin/title-footer/title-footer' },
     ].map( plugin => {
         return rollup({
                 cache: cache[plugin.input],
@@ -288,7 +289,7 @@ gulp.task('serve', () => {
         root: root,
         port: port,
         host: host,
-        livereload: true
+        livereload: true,
     })
 
     const slidesRoot = root.endsWith('/') ? root : root + '/'
@@ -299,7 +300,7 @@ gulp.task('serve', () => {
 
     gulp.watch(['js/**'], gulp.series('js', 'reload', 'eslint'))
 
-    gulp.watch(['plugin/**/plugin.js', 'plugin/**/*.html'], gulp.series('plugins', 'reload'))
+    gulp.watch(['plugin/**/plugin.js', 'plugin/**/*.html', 'plugin/**/*.css'], gulp.series('plugins', 'reload'))
 
     gulp.watch([
         'css/theme/source/**/*.{sass,scss}',
