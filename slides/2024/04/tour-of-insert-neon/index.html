@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+
+    <title>reveal.js</title>
+
+    <link rel="stylesheet" href="/dist/reset.css" />
+    <link rel="stylesheet" href="/dist/reveal.css" />
+    <link rel="stylesheet" href="/dist/theme/black.css" />
+
+    <!-- Theme used for syntax highlighted code -->
+    <link rel="stylesheet" href="/plugin/highlight/monokai.css" />
+    <style>
+      .space {
+        padding-left: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="reveal">
+      <div class="slides">
+        <section>
+          <h2>A tour of an INSERT</h2>
+          <p>How we built our Postgres database in Rust</p>
+          <a href="https://conradludgate.com/">https://conradludgate.com/</a><br />
+          <a href="https://neon.tech">https://neon.tech/</a><br/>
+          <img src="neon.svg" height="100"/>
+          <span class="space"/>
+          <img src="me.jpg" height="100" />
+
+          <aside class="notes">
+            At Neon, we have just officially launched our Serverless Postgres platform.
+            At the heart is the same familiar C postgres implementation, but much of our special
+            sauce is in our Rust infrastructure surrounding Postgres.
+
+            Let's take a tour of an INSERT query and see how it all fits together.
+          </aside>
+        </section>
+      </div>
+    </div>
+
+    <script src="/dist/reveal.js"></script>
+    <script src="/plugin/notes/notes.js"></script>
+    <script src="/plugin/highlight/highlight.js"></script>
+    <script src="/plugin/zoom/zoom.js"></script>
+    <script>
+      // More info about initialization & config:
+      // - https://revealjs.com/initialization/
+      // - https://revealjs.com/config/
+      Reveal.initialize({
+        hash: true,
+
+        // Learn about plugins: https://revealjs.com/plugins/
+        plugins: [RevealHighlight, RevealNotes, RevealZoom],
+      });
+    </script>
+  </body>
+</html>
