@@ -266,7 +266,7 @@ gulp.task('default', gulp.series('build', 'test'))
 gulp.task('bundle', gulp.series(() =>
     gulp.src(
         [
-            './slides/**/*.html',
+            './slides/**',
             './dist/**',
             './lib/**',
             './images/**',
