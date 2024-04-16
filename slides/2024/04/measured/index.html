@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+
+    <title>A tour of an INSERT</title>
+
+    <link rel="stylesheet" href="/dist/reset.css" />
+    <link rel="stylesheet" href="/dist/reveal.css" />
+    <link rel="stylesheet" href="/dist/theme/black.css" />
+
+    <!-- Theme used for syntax highlighted code -->
+    <link rel="stylesheet" href="/plugin/highlight/monokai.css" />
+  </head>
+  <body>
+    <div class="reveal">
+      <div class="slides">
+        <section>
+          <h2>measured</h2>
+          <p>More efficient prometheus metrics in Rust</p>
+          <a href="https://github.com/conradludgate/measured">https://github.com/conradludgate/measured</a><br/>
+
+          <aside class="notes">
+
+          </aside>
+        </section>
+
+        <section>
+          <section>
+            <img src="slack_message.png" />
+
+            <aside class="notes">
+              I noticed some high memory usage coming from my service at work, and I managed to reproduce it locally
+              to debug it with some more powerful tools.
+            </aside>
+          </section>
+
+          <section>
+            <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+              let m_sent = NUM_BYTES_PROXIED.with_label_values(&aux.traffic_labels("tx"));
+              let mut client = MeasuredStream::new(
+                  client,
+                  |cnt| m_sent.inc_by(cnt as u64),
+              );
+            </code></pre>
+
+            <aside class="notes">
+              When running the heap profiler, I was pointed to this section of code.
+            </aside>
+          </section>
+
+          <section>
+            <pre><code data-trim data-noescape type="text/template" class="language-rust" data-line-numbers>
+              #[derive(Debug, Deserialize, Clone, Default)]
+              pub struct MetricsAuxInfo {
+                  pub endpoint_id: EndpointId,
+                  pub project_id: ProjectId,
+                  pub branch_id: BranchId,
+              }
+
+              impl MetricsAuxInfo {
+                  pub fn traffic_labels(&self, direction: &'static str) -> [&str; 4] {
+                      [direction, &self.project_id, &self.endpoint_id, &self.branch_id]
+                  }
+              }
+            </code></pre>
+
+            <aside class="notes">
+              Now, this metrics is very high cardinality. _however_, we only get around 90k different endpoints
+              in a given region in a given week.
+            </aside>
+          </section>
+
+          <section>
+            <pre><code data-trim data-noescape type="text/template">
+              90000 entries
+              - 3 strings of 32 characters = 168 bytes
+                - 24 bytes needed for String, 32 bytes for alloc
+              - 1 arc of AtomicU64 = 32 bytes
+
+              90000 * (168 + 32) = 18MB
+            </code></pre>
+
+            <aside class="notes">
+              Running a small calculation this should really only take on the order of 18MB
+            </aside>
+          </section>
+
+          <section>
+            <img src="think.png" />
+          </section>
+
+          <section>
+            <img src="prometheus_metrics_allocs.png" />
+
+            <aside class="notes">
+              The reason why 18MB was ballooning much larger is due to fragmentation. All these
+              small allocations.
+
+              1.56 million 16 byte allocs come the test setup.
+              400k 32 byte allocs come from the test setup.
+            </aside>
+          </section>
+
+        </section>
+
+        <section>
+          <section>
+            <img src="prometheus_layout.png"  height="500px" />
+          </section>
+          <section>
+            <img src="measured_layout.png" height="700px"/>
+
+            <aside class="notes">
+              A major feature here is that I use string interning to
+              1. have an arena for all small strings
+              2. represent string labels with a single number
+              3. represent fixed enums with a single number
+            </aside>
+          </section>
+        </section>
+
+        <section>
+          <section>
+            <pre><code data-trim>
+              Timer precision: 10 ns
+              counters              fastest       │ slowest       │ median        │ mean
+              ├─ measured           22.68 ns      │ 27.49 ns      │ 23.93 ns      │ 23.9 ns
+              ├─ measured_sparse    22.56 ns      │ 148.5 ns      │ 50.88 ns      │ 61.48 ns
+              ├─ metrics            508.3 ns      │ 647.7 ns      │ 605.7 ns      │ 606.4 ns
+              ├─ prometheus         1.547 µs      │ 1.7 µs        │ 1.657 µs      │ 1.645 µs
+              ╰─ prometheus_client  2.99 µs       │ 3.38 µs       │ 3.317 µs      │ 3.262 µs
+            </code></pre>
+            <aside class="notes">
+              I've put a lot of effort into optimising measured to be fast.
+              3 microseconds is fast, but it might not be fast enough if you incremenet 10 different counters and handle
+              10k RPS that eats up 1/3 of your time budget.
+            </aside>
+          </section>
+
+          <section>
+            <pre><code data-trim data-noescape type="text/template" class="language-rust">
+              enum VecInner&lt;U: Hash + Eq&gt; {
+                  Dense(Box&lt[OnceLock&ltAtomicU64&gt;]&gt;),
+                  Sparse(DashMap&ltU, AtomicU64&gt;),
+              }
+            </code></pre>
+            <aside class="notes">
+              I used several techniques to achieve this. The first was
+              1. reduce the number of locks in a fixed-cardinality setting.
+              2. Use a sharded hashmap for variable cardinality settings.
+            </aside>
+          </section>
+
+          <section>
+            <pre><code data-trim data-noescape type="text/template" class="language-rust">
+              enum VecInner&lt;U: Hash + Eq&gt; {
+                  Dense(Box&lt[CachePadded&ltOnceLock&ltAtomicU64&gt;&gt;]&gt;),
+                  Sparse(DashMap&ltU, AtomicU64&gt;),
+              }
+            </code></pre>
+
+            <pre><code data-trim>
+              Timer precision: 10 ns
+              counters     fastest       │ slowest       │ median        │ mean
+              ├─ padded    67.26 ns      │ 152.2 ns      │ 142.6 ns      │ 142.3 ns
+              ╰─ unpadded  133.6 ns      │ 278.8 ns      │ 265.6 ns      │ 263.1 ns
+            </code></pre>
+
+            <aside class="notes">
+              Third technique was to use cache padding. Atomics are synchronised at a cache line level.
+              Since all the metrics in the dense case are packed together, they share cache lines. By padding them
+              we improve performance considerably.
+            </aside>
+          </section>
+
+          <section>
+            <pre><code data-trim data-noescape type="text/template" class="language-rust">
+              enum VecInner&lt;U: Ord + Send&gt; {
+                  Dense(Dense),
+                  Sparse(DashMap&lt;U, AtomicU64&gt;),
+              }
+
+              struct Dense {
+                  size: usize,
+                  sample: Mutex&lt;Box&lt;[Option&lt;u64&gt;]&gt;&gt;,
+                  locals: ThreadLocal&lt;Box&lt;[OnceLock&lt;AtomicU64&gt;]&gt;&gt;,
+              }
+            </code></pre>
+
+            <pre><code data-trim>
+              Timer precision: 10 ns
+              counters   fastest       │ slowest       │ median        │ mean
+              ├─ padded  67.26 ns      │ 152.2 ns      │ 142.6 ns      │ 142.3 ns
+              ╰─ local   22.68 ns      │ 27.49 ns      │ 23.93 ns      │ 23.9 ns
+            </code></pre>
+
+            <aside class="notes">
+              The last major technique I've been working on is to use thread locals at the cost of some more storage.
+              Since I optimised the data storage, I am happy with the
+            </aside>
+          </section>
+        </section>
+
+        <section>
+          <img src="measured_allocs.png" />
+
+          <aside class="notes">
+            1.56 million 16 byte allocs come the test setup.
+            400k 32 byte allocs come from the test setup.
+          </aside>
+        </section>
+
+        <section>
+          <section>
+            <pre><code data-trim data-noescape type="text/template" class="language-rust">
+              #[derive(FixedCardinalityLabel, Copy, Clone)]
+              enum Operation {
+                  Create,
+                  Update,
+                  Delete,
+              }
+            </code></pre>
+          </section>
+
+          <section>
+            <pre><code data-trim data-noescape type="text/template" class="language-rust">
+              #[derive(LabelGroup)]
+              #[label(set = MyLabelGroupSet)]
+              struct MyLabelGroup {
+                  operation: Operation,
+              }
+            </code></pre>
+          </section>
+
+          <section>
+            <pre><code data-trim data-noescape type="text/template" class="language-rust">
+              #[derive(MetricGroup)]
+              #[metric(new())]
+              struct MyMetricGroup {
+                  /// counts things
+                  my_first_counter: CounterVec&lt;MyLabelGroupSet&gt;,
+              }
+            </code></pre>
+          </section>
+
+          <section>
+            <pre><code data-trim data-noescape type="text/template" class="language-rust">
+              // create the metrics
+              let metrics = MyMetricGroup::new();
+
+              // increment the counter at a given label
+              metrics.my_first_counter.inc(MyLabelGroup { operation: Operation::Create });
+              metrics.my_first_counter.inc(MyLabelGroup { operation: Operation::Delete });
+            </code></pre>
+          </section>
+
+          <section>
+            <pre><code data-trim data-noescape type="text/template" class="language-rust">
+              let mut text_encoder = BufferedTextEncoder::new();
+              metrics.collect_group_into(&mut text_encoder);
+              let bytes = text_encoder.finish();
+            </code></pre>
+          </section>
+        </section>
+
+        <section>
+          <h2>Thank you</h2>
+          <a href="https://github.com/conradludgate/measured">https://github.com/conradludgate/measured</a><br/>
+        </section>
+      </div>
+    </div>
+
+    <script src="/dist/reveal.js"></script>
+    <script src="/plugin/notes/notes.js"></script>
+    <script src="/plugin/highlight/highlight.js"></script>
+    <script src="/plugin/zoom/zoom.js"></script>
+    <script>
+      // More info about initialization & config:
+      // - https://revealjs.com/initialization/
+      // - https://revealjs.com/config/
+      Reveal.initialize({
+        hash: true,
+
+        width: 1400,
+        height: 700,
+
+        // Learn about plugins: https://revealjs.com/plugins/
+        plugins: [RevealHighlight, RevealNotes, RevealZoom],
+      });
+    </script>
+  </body>
+</html>
